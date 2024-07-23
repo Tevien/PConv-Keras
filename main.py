@@ -22,6 +22,9 @@ from libs.pconv_model import PConvUnet
 from libs.util import MaskGenerator
 
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="4,5"
+
 # Sample call
 r"""
 # Train on CelebaHQ
@@ -86,6 +89,12 @@ def parse_args():
         type=str, default='./data/logs/',
         help='Where to output tensorboard logs during training'
     )
+    
+    parser.add_argument(
+        '-phasenum', '--phasenum',
+        type=int, default=0,
+        help='Specify phase to avoid confusing tensorboard'
+    )
 
     parser.add_argument(
         '-vgg_path', '--vgg_path',
@@ -97,6 +106,18 @@ def parse_args():
         '-checkpoint', '--checkpoint',
         type=str, 
         help='Previous weights to be loaded onto model'
+    )
+    
+    parser.add_argument(
+        '-epochs', '--epochs',
+        type=int, default=5,
+        help='How many epochs should we do'
+    )
+    
+    parser.add_argument(
+        '-channels', '--channels',
+        type=int, default=3,
+        help='How many channels does the data have'
     )
         
     return  parser.parse_args()
@@ -146,7 +167,7 @@ if __name__ == '__main__':
     )
     train_generator = train_datagen.flow_from_directory(
         args.train, 
-        MaskGenerator(512, 512, 3),
+        MaskGenerator(512, 512, args.channels),
         target_size=(512, 512), 
         batch_size=args.batch_size
     )
@@ -155,10 +176,10 @@ if __name__ == '__main__':
     val_datagen = AugmentingDataGenerator(rescale=1./255)
     val_generator = val_datagen.flow_from_directory(
         args.validation, 
-        MaskGenerator(512, 512, 3), 
+        MaskGenerator(512, 512, args.channels), 
         target_size=(512, 512), 
         batch_size=args.batch_size, 
-        classes=['val'], 
+        #classes=['val'], 
         seed=42
     )
 
@@ -166,7 +187,7 @@ if __name__ == '__main__':
     test_datagen = AugmentingDataGenerator(rescale=1./255)
     test_generator = test_datagen.flow_from_directory(
         args.test, 
-        MaskGenerator(512, 512, 3), 
+        MaskGenerator(512, 512, args.channels), 
         target_size=(512, 512), 
         batch_size=args.batch_size, 
         seed=42
@@ -194,7 +215,7 @@ if __name__ == '__main__':
             axes[1].set_title('Predicted Image')
             axes[2].set_title('Original Image')
                     
-            plt.savefig(os.path.join(path, '/img_{}_{}.png'.format(i, pred_time)))
+            plt.savefig(os.path.join(path, 'img_{}_{}.png'.format(i, pred_time)))
             plt.close()
 
     # Load the model
@@ -210,21 +231,24 @@ if __name__ == '__main__':
         elif args.stage == 'finetune':
             model.load(args.checkpoint, train_bn=False, lr=0.00005)
 
+    tb_outdir = f"_phase{args.phasenum}"
+    tb_outdir = args.name+tb_outdir
+
     # Fit model
     model.fit_generator(
         train_generator, 
-        steps_per_epoch=10000,
+        steps_per_epoch=100,
         validation_data=val_generator,
-        validation_steps=1000,
-        epochs=100,  
+        validation_steps=100,
+        epochs=args.epochs,  
         verbose=0,
         callbacks=[
             TensorBoard(
-                log_dir=os.path.join(args.log_path, args.name+'_phase1'),
-                write_graph=False
+                log_dir=os.path.join(args.log_path, tb_outdir),
+                write_graph=True
             ),
             ModelCheckpoint(
-                os.path.join(args.log_path, args.name+'_phase1', 'weights.{epoch:02d}-{loss:.2f}.h5'),
+                os.path.join(args.log_path, tb_outdir, 'weights.{epoch:02d}-{loss:.2f}.h5'),
                 monitor='val_loss', 
                 save_best_only=True, 
                 save_weights_only=True
